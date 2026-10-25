@@ -96,21 +96,28 @@ function Ammo_handler:get_magazine_bone_info()
     local rot = vector.new(mat4.multiply(mat4.identity(), t, rest_t:invert(rest_t)):get_rot_luanti_entity())
     return pos, vector.new(), rot
 end
+--- CastleDefinder: a gun can opt out of the operator's bottomless magazine by
+-- setting `properties.ammo.finite`. This is how the sniper stays rationed even
+-- though the rest of the arsenal is handed out with infinite ammunition.
+function Ammo_handler:has_infinite_ammo()
+    return self.handler.infinite_ammo and (not self.gun.properties.ammo.finite)
+end
 --use a round, called when the gun is shot. Returns a bool indicating success.
 function Ammo_handler:spend_round()
     assert(self.instance, "attempt to call object method on a class")
     local round_spent = self.ammo.chambered_round
     local meta = self.gun.meta
+    local infinite_ammo = self:has_infinite_ammo()
     --infinite ammo: allow firing even when gun is empty
-    if self.handler.infinite_ammo and (round_spent == "empty") then
+    if infinite_ammo and (round_spent == "empty") then
         local accepted = self.gun.properties.ammo.accepted_rounds
             or self.gun.properties.accepted_rounds
         round_spent = (accepted and accepted[1]) or "empty"
     end
     --subtract the bullet
-    if (self.ammo.total_rounds > 0 or self.handler.infinite_ammo) and (round_spent ~= "empty") then
+    if (self.ammo.total_rounds > 0 or infinite_ammo) and (round_spent ~= "empty") then
         --only actually subtract the round if infinite_ammo is false.
-        if not self.handler.infinite_ammo then
+        if not infinite_ammo then
             self.ammo.loaded_rounds[round_spent] = self.ammo.loaded_rounds[round_spent]-1
             if self.ammo.loaded_rounds[round_spent] == 0 then self.ammo.loaded_rounds[round_spent] = nil end
             self.ammo.total_rounds = self.ammo.total_rounds - 1
@@ -136,7 +143,7 @@ function Ammo_handler:spend_round()
 end
 function Ammo_handler:can_spend_round()
     local round_spent = self.ammo.chambered_round
-    if self.handler.infinite_ammo then
+    if self:has_infinite_ammo() then
         return round_spent ~= "empty" or (self.gun.properties.ammo.accepted_rounds ~= nil
             or self.gun.properties.accepted_rounds ~= nil)
     end
@@ -246,6 +253,34 @@ function Ammo_handler:load_single_cartridge()
         return true
     end
     return false
+end
+--loads loose cartridges straight into the gun until the gun is full. Used by
+--guns which are not magazine fed.
+function Ammo_handler:load_flat()
+    assert(self.instance, "attempt to call object method on a class")
+    while self:load_single_cartridge() do end
+end
+function Ammo_handler:can_load_flat()
+    local gun = self.gun
+    return (self.ammo.total_rounds < gun.properties.ammo.capacity)
+        and self:inventory_has_ammo(true)
+end
+--- CastleDefinder: a rationed gun is fed straight out of the operator's bag.
+-- The sniper is the one weapon that is not issued with bottomless ammunition,
+-- so without this a dry chamber would just click. The rounds are still taken
+-- out of the inventory, so the rifle stays exactly as scarce as the drops and
+-- the supply crates make it.
+function Ammo_handler:chamber_from_inventory()
+    assert(self.instance, "attempt to call object method on a class")
+    if self:has_infinite_ammo() then return end
+    if self.gun.properties.ammo.magazine_only then return end
+    if self.ammo.chambered_round ~= "empty" then return end
+    if not self:inventory_has_ammo(true) then return end
+    self:load_flat()
+    if next(self.ammo.loaded_rounds) then
+        self:chamber_round()
+        self:update_meta()
+    end
 end
 function Ammo_handler:inventory_has_ammo(only_cartridges)
     local inv = self.inventory

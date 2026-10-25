@@ -69,13 +69,42 @@ end
 
 -- Spawning -------------------------------------------------------------------
 
--- The horde gathers on the flat ground just outside the outer wall.
-arena.SPAWN = {z_min = 44, z_max = 52, half_x = 28, y = arena.GROUND_Y + 2}
+-- The horde gathers deep in the plain: at least three times the wall-to-wall
+-- distance in front of the outer wall (3 * (40 - 8) = 96 blocks), so the
+-- defenders always see it coming a long way off.
+arena.SPAWN = {z_min = 138, z_max = 146, half_x = 20, y = arena.GROUND_Y + 2}
 
 function arena.random_spawn_pos()
 	local z = math.random(arena.SPAWN.z_min, arena.SPAWN.z_max)
 	local half = math.min(arena.SPAWN.half_x, arena.foot_half(z) - 3)
 	return {x = math.random(-half, half), y = arena.SPAWN.y, z = z}
+end
+
+-- That is further out than the defenders' active blocks reach, and a monster
+-- standing in an unloaded block is quietly removed by the engine -- which
+-- would also make the wave look finished the moment it began.  Forceloading
+-- the approach corridor keeps the whole march simulated.
+arena.MARCH_CORRIDOR = {
+	x_min = -24, x_max = 24,  -- covers the spawn band with a block to spare
+	z_min = 48,  z_max = 152, -- from the walls out past the spawn point
+}
+
+function arena.forceload_corridor()
+	local block = 16
+	local limit = 64 -- the default limit (16 blocks) is far too small here
+	for z = arena.MARCH_CORRIDOR.z_min, arena.MARCH_CORRIDOR.z_max, block do
+		for x = arena.MARCH_CORRIDOR.x_min, arena.MARCH_CORRIDOR.x_max, block do
+			minetest.forceload_block({x = x, y = arena.GROUND_Y, z = z}, true, limit)
+		end
+	end
+end
+
+-- Supply crates behind the inner wall.  The wave scheduler tops them up with
+-- rounds, food and repair brick every time a wave is beaten.
+arena.SUPPLY_CHESTS = {}
+for _, x in ipairs({-16, -8, 0, 8, 16}) do
+	arena.SUPPLY_CHESTS[#arena.SUPPLY_CHESTS + 1] =
+			{x = x, y = arena.GROUND_Y + 1, z = 0}
 end
 
 return arena

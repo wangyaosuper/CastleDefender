@@ -19,10 +19,36 @@ local arena = dofile(modpath .. "/arena.lua")
 local MONSTER = "castle_defense:land_guard"
 local FIREBALL = "castle_defense:fireball"
 
-local FIREBALL_DAMAGE = 8  -- damage a fireball does to a player
+local FIREBALL_DAMAGE = 8  -- damage a fireball does to the player it hits
+local BLAST_RADIUS    = 3  -- reach of the burst when a fireball lands
+local BLAST_DAMAGE    = 6  -- damage that burst does at its centre
 local BREACH_RADIUS   = 2  -- how much wall one fireball takes with it
 local WALL_NODE       = "default:brick"
 local PLAYER_RANGE    = 24 -- how far a monster looks for a player to burn
+
+-- A fireball that lands on the masonry -- or on anything else that is not a
+-- defender -- bursts: it blows a hole in what it hit and burns whoever was
+-- standing around.  The horde spares its own kind, though: it crowds the foot
+-- of the wall, so a burst that hit bystanders would have the monsters shelling
+-- each other.  That is why the defenders are picked out by hand here instead
+-- of handing the blast a radius of its own.
+local function burst(self, pos)
+
+	mobs:boom(self, pos, BREACH_RADIUS, 0)
+
+	for _, obj in ipairs(minetest.get_objects_inside_radius(pos, BLAST_RADIUS)) do
+
+		if obj:is_player() then
+			local dist = vector.distance(pos, obj:get_pos())
+			local damage = math.ceil(BLAST_DAMAGE * (1 - dist / BLAST_RADIUS))
+
+			if damage > 0 then
+				obj:punch(self.object, 1.0,
+					{full_punch_interval = 1.0, damage_groups = {fleshy = damage}}, nil)
+			end
+		end
+	end
+end
 
 -- Fireball -------------------------------------------------------------------
 
@@ -53,15 +79,13 @@ mobs:register_arrow(FIREBALL, {
 			{full_punch_interval = 1.0, damage_groups = {fleshy = FIREBALL_DAMAGE}}, nil)
 	end,
 
-	-- Whatever else it lands on goes up in smoke.  The blast is asked to carve
-	-- nodes only (entity_radius = 0): the horde crowds the foot of the wall, so
-	-- a blast that hurt bystanders would have the monsters shelling each other.
+	-- Whatever else it lands on goes up in the burst described above.
 	hit_object = function(self)
-		mobs:boom(self, self.object:get_pos(), BREACH_RADIUS, 0)
+		burst(self, self.object:get_pos())
 	end,
 
 	hit_node = function(self, pos)
-		mobs:boom(self, pos, BREACH_RADIUS, 0)
+		burst(self, pos)
 	end
 })
 
@@ -148,7 +172,11 @@ mobs:register_mob(MONSTER, {
 	drops = {
 		{name = "mobs:leather", chance = 2, min = 0, max = 2},
 		{name = "default:steel_ingot", chance = 3, min = 0, max = 1},
-		{name = "default:apple", chance = 3, min = 0, max = 1}
+		{name = "default:apple", chance = 3, min = 0, max = 1},
+		-- The keep cannot make sniper rounds, so the only supply of them is
+		-- what the horde carries; a bite to eat is welcome after a long watch.
+		{name = "guns4d_pack_1:338L", chance = 3, min = 1, max = 2},
+		{name = "farming:bread", chance = 4, min = 1, max = 1}
 	},
 
 	animation = {

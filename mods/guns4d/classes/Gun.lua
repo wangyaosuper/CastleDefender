@@ -349,7 +349,9 @@ local gun_default = {
             --- `table` a list of accepted magazine itemstrings
             accepted_magazines = {},
             --- `string` the mag the gun starts with. Set to "empty" for no mag, otherwise it defaults to accepted_magazines[1] (if present)
-            initial_mag = nil
+            initial_mag = nil,
+            --- `bool` set to true to keep the gun honest about running out of ammunition even when the operator has bottomless ammo. Default false.
+            finite = false
         },
         --- properties.visuals
         --

@@ -258,7 +258,7 @@ function gun_default:update_image_and_text_meta(meta)
     if firemodes > 1 and self.properties.inventory.firemode_inventory_overlays[self.properties.firemodes[self.current_firemode]] then
         image = image.."^"..self.properties.inventory.firemode_inventory_overlays[self.properties.firemodes[self.current_firemode]]
     end
-    if self.handler.infinite_ammo then
+    if self.ammo_handler:has_infinite_ammo() then
         image = image.."^"..self.properties.infinite_inventory_overlay
     end
     meta:set_string("inventory_image", image)
@@ -290,6 +290,9 @@ function gun_default:attempt_fire()
     local props = self.properties
     --check if there could have been another round fired between steps.
     if ( (self.rechamber_time + (60/props.firerateRPM) < 0) or (self.rechamber_time <= 0) ) and (not self.ammo_handler.ammo.magazine_psuedo_empty) then
+        --CastleDefinder: the sniper eats loose rounds out of the bag, so top the
+        --chamber up before pulling the trigger rather than clicking on a dry gun.
+        self.ammo_handler:chamber_from_inventory()
         local spent_bullet = self.ammo_handler:spend_round()
         if spent_bullet and spent_bullet ~= "empty" then
             local dir = self.dir

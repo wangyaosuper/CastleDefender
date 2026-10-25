@@ -177,9 +177,15 @@ Guns4d.gun:inherit({
             offset = {gun_axial={x=2.3,y=2.8}, player_axial={x=2,y=2}},
         },
         ammo = {
-            magazine_only = true,
-            accepted_bullets = {"guns4d_pack_1:338L"},
-            accepted_magazines = {"guns4d_pack_1:awm_magazine"}
+            --the sniper eats loose .338 five at a time rather than through a
+            --magazine: the keep hands out one loaded rifle, and every round
+            --after that has to be taken off the horde or out of the crates
+            --behind the inner wall. `finite` keeps it rationed even though the
+            --rest of the arsenal is issued with bottomless ammunition.
+            magazine_only = false,
+            capacity = 5,
+            accepted_rounds = {"guns4d_pack_1:338L"},
+            finite = true
         },
         charging = { --how the gun "cocks"
             bolt_charge_mode = "no_catch", --"none"-chamber is always full, "catch"-when fired to dry bolt will not need to be charged after reload, "no_catch" bolt will always need to be charged after reload.
@@ -190,8 +196,6 @@ Guns4d.gun:inherit({
         },
         reload = {
             {action="charge", time=18/24, anim="chamber", sounds = "rechamber"}, --this way if you accidentally cancel you can still cock it and your gun isnt softlocked.
-            {action="unload_mag", time=.1, anim="unload", sounds = {sound="ar_mag_unload"}},
-            {action="store", time=.5, anim="store", sounds = {sound="ar_mag_store"}},
             {action="load", time=.5, anim="load", sounds = {sound="ar_mag_load"}},
             {action="charge", time=18/24, anim="chamber", sounds = "rechamber"}
         },

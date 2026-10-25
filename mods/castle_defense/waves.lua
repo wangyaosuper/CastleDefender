@@ -14,6 +14,14 @@ local arena = dofile(modpath .. "/arena.lua")
 
 local MONSTER = "castle_defense:land_guard"
 
+-- The staging ground lies well out in the plain, beyond the blocks the
+-- defenders keep loaded, and a monster standing in an unloaded block is
+-- quietly dropped by the engine -- which would also make a wave look finished
+-- the moment it began.  Keep the whole approach simulated for the siege.  The
+-- engine refuses to forceload while the mods are still being read, so this
+-- waits for the first server step.
+minetest.after(0, arena.forceload_corridor)
+
 local WAVE = {
 	first_delay = 30,  -- seconds of peace before the first wave
 	rest = 25,         -- seconds between two waves
@@ -27,9 +35,10 @@ local WAVE = {
 local SCAN_INTERVAL = 0.5
 local BANNER_TIME = 5
 
--- Everything in the arena lies within this distance of the middle of the plaza.
+-- Everything in the arena lies within this distance of the middle of the plaza,
+-- the horde's staging ground in the plain included.
 local SCAN_CENTER = {x = 0, y = 0, z = 10}
-local SCAN_RADIUS = 110
+local SCAN_RADIUS = 220
 
 local game = {
 	phase = "prepare", -- prepare | fighting | rest | won | lost
@@ -132,7 +141,8 @@ minetest.register_on_joinplayer(function(player)
 
 	minetest.chat_send_player(player:get_player_name(),
 		"[CastleDefinder] Hold the walls. If a monster reaches the red zone "
-		.. "deep in the keep, the monsters win.")
+		.. "deep in the keep, the monsters win. Supplies are kept in the crates "
+		.. "just behind the inner wall and are topped up after every wave.")
 end)
 
 minetest.register_on_leaveplayer(function(player)
@@ -214,6 +224,37 @@ local function start_wave()
 	set_status()
 end
 
+-- The quartermaster's stores sit in the crates behind the inner wall.  When a
+-- wave is beaten each crate may hold a little of this and a little of that.
+local SUPPLY = {
+	{name = "guns4d_pack_1:338L", chance = 2, min = 2, max = 5},
+	{name = "farming:bread", chance = 2, min = 1, max = 3},
+	{name = "default:brick", chance = 2, min = 8, max = 24},
+}
+
+local function restock()
+
+	local stocked = false
+
+	for _, cpos in ipairs(arena.SUPPLY_CHESTS) do
+
+		if minetest.get_node(cpos).name == "default:chest" then
+
+			local inv = minetest.get_meta(cpos):get_inventory()
+
+			for _, item in ipairs(SUPPLY) do
+				if math.random(item.chance) == 1 then
+					inv:add_item("main", ItemStack(item.name .. " "
+							.. math.random(item.min, item.max)))
+					stocked = true
+				end
+			end
+		end
+	end
+
+	return stocked
+end
+
 local function wave_cleared()
 
 	if game.wave >= WAVE.total then
@@ -225,6 +266,11 @@ local function wave_cleared()
 	game.phase = "rest"
 	game.timer = 0
 	broadcast("Wave " .. game.wave .. " cleared.")
+
+	if restock() then
+		broadcast("The crates behind the inner wall have been restocked.")
+	end
+
 	set_status()
 end
 

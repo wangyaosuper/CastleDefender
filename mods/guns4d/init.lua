@@ -267,7 +267,6 @@ minetest.register_on_joinplayer(function(player)
     local listname = Guns4d.config.inventory_listname
 
     local gun_list = {
-        "guns4d_pack_1:awm",
         "guns4d_pack_1:m4",
         "guns4d_pack_1:glock21",
         "guns4d_pack_1:m1014"
@@ -278,7 +277,52 @@ minetest.register_on_joinplayer(function(player)
         end
     end
 
-    Guns4d.players[pname].infinite_ammo = true
+    -- CastleDefinder rations the sniper: the keep hands out one rifle with five
+    -- rounds already in it, and every round after that has to be taken off the
+    -- horde or out of the crates behind the inner wall.  Readying happens once
+    -- per player, so quitting and rejoining is not a way to refill the rifle.
+    local awm = "guns4d_pack_1:awm"
+    local function ready_sniper(stack, rounds)
+        local meta = stack:get_meta()
+        meta:set_string("guns4d_loaded_mag", "empty")
+        meta:set_string("guns4d_loaded_rounds", minetest.serialize({["guns4d_pack_1:338L"] = rounds}))
+        meta:set_int("guns4d_total_rounds", rounds)
+        meta:set_string("guns4d_chambered_round", "guns4d_pack_1:338L")
+        --keep the inventory badge honest before the rifle is first wielded.
+        meta:set_string("count_meta", Guns4d.config.show_gun_inv_ammo_count and tostring(rounds) or "F")
+        return stack
+    end
+    local player_meta = player:get_meta()
+    if player_meta:get_string("castle_defense_sniper_readied") ~= "true" then
+        local readied = false
+        --saves from before the rifle was changed over carry it empty, so ready
+        --whatever is already in the inventory rather than handing out a second.
+        for i = 1, inv:get_size(listname) do
+            local stack = inv:get_stack(listname, i)
+            if stack:get_name() == awm then
+                inv:set_stack(listname, i, ready_sniper(stack, 5))
+                readied = true
+            end
+        end
+        if not readied then
+            inv:add_item(listname, ready_sniper(ItemStack(awm), 5))
+        end
+        player_meta:set_string("castle_defense_sniper_readied", "true")
+    end
+    --the rifle is fed loose cartridges now, so spare magazines from older saves
+    --are cashed in for the rounds they were holding instead of clogging the bag.
+    for i = 1, inv:get_size(listname) do
+        local stack = inv:get_stack(listname, i)
+        if stack:get_name() == "guns4d_pack_1:awm_magazine" then
+            local held = minetest.deserialize(stack:get_meta():get_string("guns4d_loaded_rounds"))
+            local count = (type(held) == "table" and held["guns4d_pack_1:338L"]) or 0
+            inv:set_stack(listname, i, ItemStack(""))
+            if count > 0 then
+                inv:add_item(listname, "guns4d_pack_1:338L "..count)
+            end
+        end
+    end
+
     if Guns4d.players[pname].gun then
         Guns4d.players[pname].gun:update_image_and_text_meta()
     end

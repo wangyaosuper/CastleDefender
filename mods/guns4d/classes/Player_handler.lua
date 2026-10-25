@@ -196,6 +196,8 @@ function player_handler.construct(def)
             end
         end
         def.look_rotation = Guns4d.table.deep_copy(player_handler.look_rotation)
+        --CastleDefinder hands out bottomless magazines as before; the sniper is
+        --the exception and opts out with `properties.ammo.finite`.
         def.infinite_ammo = true
     end
 end

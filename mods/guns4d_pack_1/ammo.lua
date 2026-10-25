@@ -30,8 +30,10 @@ Guns4d.ammo.register_bullet({
     energy = 2000,          --energy in joules, this is used for blunt->calculation based on blunt_penetration value. The higher this is, the more blunt_force will be generated from "blocked" sharp_penetration. 1j = 1MPa
     sharp_penetration = 20, --sharp penetration is in mmRHA.
     blunt_penetration = 1200, --blunt penetration is in Joules OR pascals (1 square meter). it is force or energy in MPa, this defines the ratio of energy which goes to blunt penetration aswell.
-    raw_blunt_damage = 5,       --the blunt damage at the blunt_penetration value. This means this is really setting the ratio of damage to blunt_penetration, meaning blocked sharp will do this amount of damage per the set blunt_penetration
-    raw_sharp_damage = 7        --the sharp damage at the sharp_penetration value. Real damage will very if the target is armoured
+    raw_blunt_damage = 15,      --the blunt damage at the blunt_penetration value. This means this is really setting the ratio of damage to blunt_penetration, meaning blocked sharp will do this amount of damage per the set blunt_penetration
+    raw_sharp_damage = 35       --the sharp damage at the sharp_penetration value. Real damage will very if the target is armoured
+    --15 + 35 raw is a rifle built to drop a monster in one shot at the wall
+    --and never more than two out at the staging ground in the plain.
 })
 minetest.register_craftitem("guns4d_pack_1:45A", {
     description = ".45 ACP",

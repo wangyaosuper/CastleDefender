@@ -227,6 +227,17 @@ minetest.register_on_generated(function(minp, maxp, _seed)
 	vm:calc_lighting()
 	vm:write_to_map()
 
+	-- Supply crates behind the inner wall.  They go in through the map and not
+	-- through the VoxelManip above, so that a crate's on_construct runs and it
+	-- is given its inventory; the wave scheduler fills that after every wave.
+	for _, cpos in ipairs(arena.SUPPLY_CHESTS) do
+		if cpos.x >= minp.x and cpos.x <= maxp.x
+				and cpos.z >= minp.z and cpos.z <= maxp.z
+				and minetest.get_node(cpos).name == "air" then
+			minetest.add_node(cpos, {name = "default:chest"})
+		end
+	end
+
 	if not generated_notice_shown then
 		generated_notice_shown = true
 		minetest.log("action", "[castle_defense] arena mapgen active")
