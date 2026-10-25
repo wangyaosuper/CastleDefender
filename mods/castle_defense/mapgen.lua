@@ -15,20 +15,18 @@
 
 -- Geometry ------------------------------------------------------------------
 
-local VALLEY_APEX_Z = -45  -- deepest point of the valley, behind the inner wall
-local VALLEY_DEG    = 22   -- how far the ranges open towards the plain
-local VALLEY_SLOPE  = math.tan(math.rad(VALLEY_DEG))
+-- The shape of the valley is shared with the monster AI and the wave spawner,
+-- so it lives in arena.lua.
+local arena = dofile(minetest.get_modpath("castle_defense") .. "/arena.lua")
 
-local GROUND_Y    = 0    -- top solid node of plateau and plain
+local GROUND_Y    = arena.GROUND_Y -- top solid node of plateau and plain
 local MOUNT_PEAK  = 42   -- mountain surface height once the range is full
 local MOUNT_BAND  = 46   -- horizontal distance over which the range rises
 local FILL_BOTTOM = -32  -- how deep the ground is filled
 
 -- Half width of the valley floor at depth `z`.  It shrinks to zero at the apex,
 -- which closes the back of the keep, and grows towards the plain in front.
-local function foot_half(z)
-	return (z - VALLEY_APEX_Z) * VALLEY_SLOPE
-end
+local foot_half = arena.foot_half
 
 -- Signed distance to the valley wall: <= 0 is flat valley floor, > 0 mountains.
 local function mountain_dist(x, z)
@@ -96,6 +94,7 @@ local c_dirt  = minetest.get_content_id("default:dirt")
 local c_grass = minetest.get_content_id("default:dirt_with_grass")
 local c_brick = minetest.get_content_id("default:brick")
 local c_stair = minetest.get_content_id("stairs:stair_brick")
+local c_mark  = minetest.get_content_id("wool:red") -- capture zone carpet
 
 local DIRT_DEPTH = 3 -- dirt layers below the grass
 
@@ -157,9 +156,10 @@ minetest.register_on_generated(function(minp, maxp, _seed)
 
 			local top, surface
 			if dist <= 0 then
-				-- Flat valley floor: the keep and the plain in front of it.
+				-- Flat valley floor: the keep and the plain in front of it, with
+				-- the capture zone carpeted in red so it is impossible to miss.
 				top = GROUND_Y
-				surface = c_grass
+				surface = arena.in_capture({x = x, z = z}) and c_mark or c_grass
 			else
 				-- Mountain range on the other three sides.
 				local noise = sample_2d(noise_gen, x, z)
