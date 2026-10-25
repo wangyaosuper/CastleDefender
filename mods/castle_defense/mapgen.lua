@@ -31,13 +31,34 @@ end
 
 -- The second wall is a straight chord halfway into the mountain half of the
 -- keep; both of its ends run into the mountain foot, so it cannot be flanked.
-local INNER_WALL_Z    = -23
+local INNER_WALL_Z     = -16
 local INNER_WALL_FRONT = INNER_WALL_Z + math.floor((WALL_THICKNESS - 1) / 2)
 local INNER_WALL_BACK  = INNER_WALL_FRONT - (WALL_THICKNESS - 1)
 
 local function in_inner_wall(x, z)
 	return z >= INNER_WALL_BACK and z <= INNER_WALL_FRONT
 		and math.abs(x) <= R_INNER + WALL_THICKNESS
+end
+
+-- Stairs --------------------------------------------------------------------
+
+-- Five staircases per wall, on the keep-facing side of it.
+local OUTER_STAIR_ANGLES = {-48, -24, 0, 24, 48} -- degrees off the plain
+local INNER_STAIR_LANES  = {-28, -14, 0, 14, 28} -- x positions on the chord
+
+-- Outermost node of the keep floor along the lane that runs in `sign` direction
+-- on the chosen axis.  The wall starts right behind it.
+local function keep_edge(along_x, sign, lane)
+	local edge = 0
+	for step = 1, R_INNER + WALL_THICKNESS + 4 do
+		local d = sign * step
+		local x, z = (along_x and d or lane), (along_x and lane or d)
+		if x * x + z * z >= R_INNER * R_INNER then
+			break
+		end
+		edge = d
+	end
+	return edge
 end
 
 -- math.atan2 exists on Lua 5.1 (what the engine ships) and was removed in 5.4.
@@ -75,6 +96,7 @@ local c_stone = minetest.get_content_id("default:stone")
 local c_dirt  = minetest.get_content_id("default:dirt")
 local c_grass = minetest.get_content_id("default:dirt_with_grass")
 local c_brick = minetest.get_content_id("default:brick")
+local c_stair = minetest.get_content_id("stairs:stair_brick")
 
 local DIRT_DEPTH = 3 -- dirt layers below the grass
 
@@ -91,6 +113,27 @@ local function mountain_height(r, noise)
 	t = t * t * (3 - 2 * t) -- smoothstep
 	local h = 4 + t * (MOUNT_PEAK - 4) + noise * 6
 	return math.max(GROUND_Y + 3, math.floor(GROUND_Y + h))
+end
+
+-- Places a solid staircase that climbs towards (dir_x, dir_z) and ends on the
+-- wall walkway.  (top_x, top_z) is the highest step, right next to the wall.
+local function build_stairs(data, param2_data, area, minp, maxp,
+		top_x, top_z, dir_x, dir_z)
+	local facing = minetest.dir_to_facedir({x = dir_x, y = 0, z = dir_z})
+	for i = 0, WALL_HEIGHT - 1 do
+		local x = top_x - dir_x * i
+		local z = top_z - dir_z * i
+		local y = WALL_HEIGHT - i
+		if x >= minp.x and x <= maxp.x and z >= minp.z and z <= maxp.z then
+			-- Solid pedestal, so the steps do not float.
+			for fill = GROUND_Y + 1, y - 1 do
+				data[area:index(x, fill, z)] = c_brick
+			end
+			local idx = area:index(x, y, z)
+			data[idx] = c_stair
+			param2_data[idx] = facing
+		end
+	end
 end
 
 local generated_notice_shown = false
@@ -166,6 +209,29 @@ minetest.register_on_generated(function(minp, maxp, _seed)
 		end
 	end
 
+	-- Staircases, five per wall, all on the keep-facing side.
+	local param2_data = vm:get_param2_data()
+
+	for _, deg in ipairs(OUTER_STAIR_ANGLES) do
+		local rad = math.rad(deg)
+		local rx, rz = math.sin(rad), math.cos(rad)
+		local along_x = math.abs(rx) > math.abs(rz)
+		local sign = ((along_x and rx or rz) > 0) and 1 or -1
+		local lane = math.floor(R_INNER * (along_x and rz or rx) + 0.5)
+		local edge = keep_edge(along_x, sign, lane)
+		if along_x then
+			build_stairs(data, param2_data, area, minp, maxp, edge, lane, sign, 0)
+		else
+			build_stairs(data, param2_data, area, minp, maxp, lane, edge, 0, sign)
+		end
+	end
+
+	for _, lane in ipairs(INNER_STAIR_LANES) do
+		build_stairs(data, param2_data, area, minp, maxp,
+			lane, INNER_WALL_BACK - 1, 0, 1)
+	end
+
+	vm:set_param2_data(param2_data)
 	vm:set_data(data)
 	vm:update_liquids()
 	vm:calc_lighting()
