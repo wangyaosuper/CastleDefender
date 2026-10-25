@@ -2,80 +2,79 @@
 --
 -- Arena terrain generator.
 --
---   * mountains enclose the keep on three sides (240 degrees of the compass),
---   * the remaining ~120 degrees face a flat plain,
---   * a two-layer brick wall plugs the opening, right at the foot of the
---     mountains.
+--   * the mountains form a flared valley: it is closed at the back and its two
+--     ranges open out towards the plain at 22 degrees either side,
+--   * two straight brick walls span the valley, the outer one at the mouth and
+--     the inner one halfway into the keep, so the plaza between them is a
+--     clean trapezoid (wider towards the plain),
+--   * the outer wall is therefore the longer of the two, and both walls run
+--     foot to foot into the mountains so they cannot be flanked.
 --
 -- Everything is built with a VoxelManip in register_on_generated, so it works
 -- on top of the empty "singlenode" mapgen forced in init.lua.
 
 -- Geometry ------------------------------------------------------------------
 
-local OPENING_DEG = 60   -- half of the ~120 degree plain-facing opening
-local R_INNER     = 46   -- foot of the mountains / inner edge of the outer wall
+local VALLEY_APEX_Z = -45  -- deepest point of the valley, behind the inner wall
+local VALLEY_DEG    = 22   -- how far the ranges open towards the plain
+local VALLEY_SLOPE  = math.tan(math.rad(VALLEY_DEG))
+
 local GROUND_Y    = 0    -- top solid node of plateau and plain
 local MOUNT_PEAK  = 42   -- mountain surface height once the range is full
 local MOUNT_BAND  = 46   -- horizontal distance over which the range rises
 local FILL_BOTTOM = -32  -- how deep the ground is filled
+
+-- Half width of the valley floor at depth `z`.  It shrinks to zero at the apex,
+-- which closes the back of the keep, and grows towards the plain in front.
+local function foot_half(z)
+	return (z - VALLEY_APEX_Z) * VALLEY_SLOPE
+end
+
+-- Signed distance to the valley wall: <= 0 is flat valley floor, > 0 mountains.
+local function mountain_dist(x, z)
+	return math.abs(x) - foot_half(z)
+end
 
 -- Walls ---------------------------------------------------------------------
 
 local WALL_THICKNESS = 5 -- how many brick layers thick
 local WALL_HEIGHT    = 4 -- about two players tall
 
--- The outer wall follows the opening: an arc at the foot of the mountains.
-local function in_outer_wall(r, in_opening)
-	return in_opening and r >= R_INNER and r < R_INNER + WALL_THICKNESS
+-- The outer wall is the longest one: it stands at the mouth of the valley.  The
+-- inner wall sits halfway between it and the apex of the keep.
+local OUTER_WALL_Z = 40
+local INNER_WALL_Z = 8
+
+local function wall_front(z)
+	return z + math.floor((WALL_THICKNESS - 1) / 2)
 end
 
--- The second wall is a straight chord halfway into the mountain half of the
--- keep; both of its ends run into the mountain foot, so it cannot be flanked.
-local INNER_WALL_Z     = -16
-local INNER_WALL_FRONT = INNER_WALL_Z + math.floor((WALL_THICKNESS - 1) / 2)
+local OUTER_WALL_FRONT = wall_front(OUTER_WALL_Z) -- towards the plain
+local OUTER_WALL_BACK  = OUTER_WALL_FRONT - (WALL_THICKNESS - 1)
+local INNER_WALL_FRONT = wall_front(INNER_WALL_Z)
 local INNER_WALL_BACK  = INNER_WALL_FRONT - (WALL_THICKNESS - 1)
 
-local function in_inner_wall(x, z)
-	return z >= INNER_WALL_BACK and z <= INNER_WALL_FRONT
-		and math.abs(x) <= R_INNER + WALL_THICKNESS
+-- Both walls are straight chords spanning the valley, so their length follows
+-- the mountains: the deeper the wall, the shorter it is.  Each end is dug a
+-- couple of blocks into the range.
+local function in_wall(x, z, front, back)
+	if z < back or z > front then
+		return false
+	end
+	return math.abs(x) <= foot_half(z) + 2
 end
 
 -- Stairs --------------------------------------------------------------------
 
 -- Five staircases per wall, on the keep-facing side of it.
-local OUTER_STAIR_ANGLES = {-48, -24, 0, 24, 48} -- degrees off the plain
-local INNER_STAIR_LANES  = {-28, -14, 0, 14, 28} -- x positions on the chord
+local OUTER_STAIR_LANES = {-28, -14, 0, 14, 28} -- x of the outer wall stairs
+local INNER_STAIR_LANES = {-16, -8, 0, 8, 16}   -- x of the inner wall stairs
 
--- Outermost node of the keep floor along the lane that runs in `sign` direction
--- on the chosen axis.  The wall starts right behind it.
-local function keep_edge(along_x, sign, lane)
-	local edge = 0
-	for step = 1, R_INNER + WALL_THICKNESS + 4 do
-		local d = sign * step
-		local x, z = (along_x and d or lane), (along_x and lane or d)
-		if x * x + z * z >= R_INNER * R_INNER then
-			break
-		end
-		edge = d
-	end
-	return edge
-end
-
--- math.atan2 exists on Lua 5.1 (what the engine ships) and was removed in 5.4.
-local atan2 = math.atan2
-if not atan2 then
-	atan2 = function(y, x)
-		if x > 0 then
-			return math.atan(y / x)
-		elseif x < 0 then
-			return math.atan(y / x) + (y >= 0 and math.pi or -math.pi)
-		elseif y > 0 then
-			return math.pi / 2
-		elseif y < 0 then
-			return -math.pi / 2
-		end
-		return 0
-	end
+-- Each staircase is centred on its lane and this many blocks wide.
+local STAIR_WIDTH = 3
+local STAIR_OFFSETS = {}
+for off = -math.floor(STAIR_WIDTH / 2), math.floor(STAIR_WIDTH / 2) do
+	STAIR_OFFSETS[#STAIR_OFFSETS + 1] = off
 end
 
 -- Rugged variation for the mountain range.  Noise objects may not be created
@@ -106,25 +105,26 @@ local function sample_2d(p, x, z)
 	return sample(p, {x = x, y = z})
 end
 
--- Surface height for a mountain column.
-local function mountain_height(r, noise)
-	local t = (r - R_INNER) / MOUNT_BAND
+-- Surface height for a mountain column, given its distance to the valley wall.
+local function mountain_height(dist, noise)
+	local t = dist / MOUNT_BAND
 	if t < 0 then t = 0 elseif t > 1 then t = 1 end
 	t = t * t * (3 - 2 * t) -- smoothstep
 	local h = 4 + t * (MOUNT_PEAK - 4) + noise * 6
 	return math.max(GROUND_Y + 3, math.floor(GROUND_Y + h))
 end
 
--- Places a solid staircase that climbs towards (dir_x, dir_z) and ends on the
--- wall walkway.  (top_x, top_z) is the highest step, right next to the wall.
-local function build_stairs(data, param2_data, area, minp, maxp,
-		top_x, top_z, dir_x, dir_z)
-	local facing = minetest.dir_to_facedir({x = dir_x, y = 0, z = dir_z})
+-- Places a single column of steps climbing towards +z and ending level with the
+-- wall walkway.  (x, top_z) is the highest step, right in front of the wall.
+local function build_stairs(data, param2_data, area, minp, maxp, x, top_z)
+	local facing = 0 -- facedir 0: the step rises towards +z
+	if x < minp.x or x > maxp.x then
+		return
+	end
 	for i = 0, WALL_HEIGHT - 1 do
-		local x = top_x - dir_x * i
-		local z = top_z - dir_z * i
+		local z = top_z - i
 		local y = WALL_HEIGHT - i
-		if x >= minp.x and x <= maxp.x and z >= minp.z and z <= maxp.z then
+		if z >= minp.z and z <= maxp.z then
 			-- Solid pedestal, so the steps do not float.
 			for fill = GROUND_Y + 1, y - 1 do
 				data[area:index(x, fill, z)] = c_brick
@@ -153,23 +153,17 @@ minetest.register_on_generated(function(minp, maxp, _seed)
 
 	for z = minp.z, maxp.z do
 		for x = minp.x, maxp.x do
-			local r = math.sqrt(x * x + z * z)
-			local deg = math.deg(atan2(x, z))
-			local in_opening = math.abs(deg) <= OPENING_DEG
+			local dist = mountain_dist(x, z)
 
 			local top, surface
-			if r < R_INNER then
-				-- Flat plateau inside the keep.
-				top = GROUND_Y
-				surface = c_grass
-			elseif in_opening then
-				-- Flat plain in front of the keep.
+			if dist <= 0 then
+				-- Flat valley floor: the keep and the plain in front of it.
 				top = GROUND_Y
 				surface = c_grass
 			else
 				-- Mountain range on the other three sides.
 				local noise = sample_2d(noise_gen, x, z)
-				top = mountain_height(r, noise)
+				top = mountain_height(dist, noise)
 				surface = (top - GROUND_Y <= 8) and c_grass or c_stone
 			end
 
@@ -198,9 +192,10 @@ minetest.register_on_generated(function(minp, maxp, _seed)
 				end
 			end
 
-			-- Brick walls: the outer arc plugging the opening plus the inner
-			-- chord halfway into the mountain half of the keep.
-			if in_outer_wall(r, in_opening) or in_inner_wall(x, z) then
+			-- Brick walls: the outer chord at the mouth of the valley plus the
+			-- shorter inner chord halfway into the keep.
+			if in_wall(x, z, OUTER_WALL_FRONT, OUTER_WALL_BACK)
+					or in_wall(x, z, INNER_WALL_FRONT, INNER_WALL_BACK) then
 				local y_end = math.min(GROUND_Y + WALL_HEIGHT, yhi)
 				for y = GROUND_Y + 1, y_end do
 					data[area:index(x, y, z)] = c_brick
@@ -212,23 +207,18 @@ minetest.register_on_generated(function(minp, maxp, _seed)
 	-- Staircases, five per wall, all on the keep-facing side.
 	local param2_data = vm:get_param2_data()
 
-	for _, deg in ipairs(OUTER_STAIR_ANGLES) do
-		local rad = math.rad(deg)
-		local rx, rz = math.sin(rad), math.cos(rad)
-		local along_x = math.abs(rx) > math.abs(rz)
-		local sign = ((along_x and rx or rz) > 0) and 1 or -1
-		local lane = math.floor(R_INNER * (along_x and rz or rx) + 0.5)
-		local edge = keep_edge(along_x, sign, lane)
-		if along_x then
-			build_stairs(data, param2_data, area, minp, maxp, edge, lane, sign, 0)
-		else
-			build_stairs(data, param2_data, area, minp, maxp, lane, edge, 0, sign)
+	for _, lane in ipairs(OUTER_STAIR_LANES) do
+		for _, off in ipairs(STAIR_OFFSETS) do
+			build_stairs(data, param2_data, area, minp, maxp, lane + off,
+				OUTER_WALL_BACK - 1)
 		end
 	end
 
 	for _, lane in ipairs(INNER_STAIR_LANES) do
-		build_stairs(data, param2_data, area, minp, maxp,
-			lane, INNER_WALL_BACK - 1, 0, 1)
+		for _, off in ipairs(STAIR_OFFSETS) do
+			build_stairs(data, param2_data, area, minp, maxp, lane + off,
+				INNER_WALL_BACK - 1)
+		end
 	end
 
 	vm:set_param2_data(param2_data)
